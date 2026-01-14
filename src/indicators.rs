@@ -306,6 +306,73 @@ pub fn calculate_atr(prices: &[DailyPrice], period: usize) -> Vec<TechnicalIndic
     indicators
 }
 
+/// Calculate Stochastic Oscillator
+/// %K = (Close - Lowest Low) / (Highest High - Lowest Low) * 100
+/// %D = SMA of %K
+/// Default: 14-period %K, 3-period %D
+pub fn calculate_stochastic(
+    prices: &[DailyPrice],
+    k_period: usize,
+    d_period: usize,
+) -> Vec<TechnicalIndicator> {
+    if prices.len() < k_period + d_period {
+        return vec![];
+    }
+
+    let mut indicators = Vec::new();
+    let mut k_values = Vec::new();
+
+    // Calculate %K for each day
+    for i in (k_period - 1)..prices.len() {
+        let window = &prices[(i + 1 - k_period)..=i];
+
+        let lowest_low = window
+            .iter()
+            .map(|p| p.low)
+            .fold(f64::INFINITY, f64::min);
+        let highest_high = window
+            .iter()
+            .map(|p| p.high)
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        let close = prices[i].close;
+        let range = highest_high - lowest_low;
+
+        let k = if range == 0.0 {
+            50.0 // Neutral if no range
+        } else {
+            ((close - lowest_low) / range) * 100.0
+        };
+
+        k_values.push((prices[i].date, k));
+
+        indicators.push(TechnicalIndicator {
+            symbol: prices[0].symbol.clone(),
+            date: prices[i].date,
+            indicator_name: format!("STOCH_K_{}", k_period),
+            value: k,
+        });
+    }
+
+    // Calculate %D (SMA of %K)
+    for i in (d_period - 1)..k_values.len() {
+        let d_sum: f64 = k_values[(i + 1 - d_period)..=i]
+            .iter()
+            .map(|(_, k)| k)
+            .sum();
+        let d = d_sum / d_period as f64;
+
+        indicators.push(TechnicalIndicator {
+            symbol: prices[0].symbol.clone(),
+            date: k_values[i].0,
+            indicator_name: format!("STOCH_D_{}", d_period),
+            value: d,
+        });
+    }
+
+    indicators
+}
+
 /// Calculate all standard indicators for a symbol
 pub fn calculate_all(prices: &[DailyPrice]) -> Vec<TechnicalIndicator> {
     let mut all = Vec::new();
@@ -329,6 +396,9 @@ pub fn calculate_all(prices: &[DailyPrice]) -> Vec<TechnicalIndicator> {
 
     // ATR 14
     all.extend(calculate_atr(prices, 14));
+
+    // Stochastic 14, 3
+    all.extend(calculate_stochastic(prices, 14, 3));
 
     all
 }

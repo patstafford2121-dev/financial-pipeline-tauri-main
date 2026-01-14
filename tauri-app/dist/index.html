@@ -402,6 +402,8 @@
                                 <option value="BB_MIDDLE_20">Bollinger Middle</option>
                                 <option value="BB_LOWER_20">Bollinger Lower</option>
                                 <option value="ATR_14">ATR (14)</option>
+                                <option value="STOCH_K_14">Stochastic %K</option>
+                                <option value="STOCH_D_3">Stochastic %D</option>
                                 <option value="MACD_12_26">MACD</option>
                                 <option value="MACD_SIGNAL_9">MACD Signal</option>
                                 <option value="MACD_HIST">MACD Histogram</option>
@@ -729,6 +731,8 @@
                             borderColor = '#ec4899'; // Pink for Bollinger Bands
                         } else if (indicatorName.startsWith('ATR')) {
                             borderColor = '#14b8a6'; // Teal for ATR
+                        } else if (indicatorName.startsWith('STOCH')) {
+                            borderColor = '#06b6d4'; // Cyan for Stochastic
                         } else {
                             borderColor = '#38bdf8';
                         }
