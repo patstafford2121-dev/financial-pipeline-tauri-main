@@ -506,8 +506,10 @@
                                 <option value="MACD_12_26">MACD</option>
                                 <option value="MACD_SIGNAL_9">MACD Signal</option>
                                 <option value="MACD_HIST">MACD Histogram</option>
+                                <option value="GOOGLE_TRENDS">Google Trends</option>
                             </select>
                             <button onclick="calculateIndicators()">Calculate</button>
+                            <button class="btn-secondary" onclick="fetchTrends()">Fetch Trends</button>
                             <button class="btn-secondary" onclick="showChart()">Show Chart</button>
                         </div>
                         <div class="indicator-grid">
@@ -858,6 +860,31 @@
             }
         }
 
+        async function fetchTrends() {
+            const symbol = document.getElementById('indicator-symbol').value.trim();
+            if (!symbol) {
+                alert('Please enter a symbol');
+                return;
+            }
+
+            try {
+                log(`Fetching Google Trends for ${symbol}...`, 'info');
+                const result = await invoke('fetch_trends', { keyword: symbol });
+                log(result.message, result.success ? 'success' : 'error');
+                alert(result.message);
+
+                // If successful and Google Trends is selected, show the chart
+                if (result.success) {
+                    const indicatorSelect = document.getElementById('indicator-select');
+                    indicatorSelect.value = 'GOOGLE_TRENDS';
+                    await chartIndicator('GOOGLE_TRENDS');
+                }
+            } catch (e) {
+                log('Error fetching trends: ' + e, 'error');
+                alert('Error: ' + e);
+            }
+        }
+
         async function loadIndicators() {
             const symbol = document.getElementById('indicator-symbol').value.trim();
             if (!symbol) {
@@ -985,6 +1012,63 @@
                     });
 
                     log(`Candlestick chart loaded for ${symbol}`, 'success');
+                } else if (indicatorName === 'GOOGLE_TRENDS') {
+                    // Google Trends chart
+                    const trends = await invoke('get_trends', { keyword: symbol });
+                    if (trends.length === 0) {
+                        alert('No trends data. Click "Fetch Trends" first.');
+                        return;
+                    }
+
+                    indicatorChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: trends.map(t => t.date),
+                            datasets: [{
+                                label: `${symbol} Google Trends (Interest)`,
+                                data: trends.map(t => t.value),
+                                borderColor: '#4285f4', // Google blue
+                                backgroundColor: '#4285f420',
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.3,
+                                pointRadius: 0,
+                                pointHoverRadius: 4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    labels: { color: '#f1f5f9' }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    ticks: { color: '#94a3b8', maxTicksLimit: 10 },
+                                    grid: { color: '#334155' }
+                                },
+                                y: {
+                                    min: 0,
+                                    max: 100,
+                                    ticks: { color: '#94a3b8' },
+                                    grid: { color: '#334155' },
+                                    title: {
+                                        display: true,
+                                        text: 'Search Interest (0-100)',
+                                        color: '#94a3b8'
+                                    }
+                                }
+                            },
+                            interaction: {
+                                intersect: false,
+                                mode: 'index'
+                            }
+                        }
+                    });
+
+                    log(`Google Trends chart loaded for ${symbol}`, 'success');
                 } else {
                     // Line chart for price or indicators
                     let data, labels, label, borderColor;

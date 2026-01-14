@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::error::Result;
 use crate::models::{AlertCondition, DailyPrice, MacroData, Position, PositionType, PriceAlert, Symbol, TechnicalIndicator};
+use crate::trends::TrendData;
 
 /// Database wrapper for financial data storage
 pub struct Database {
@@ -553,6 +554,55 @@ impl Database {
         )?;
         Ok(())
     }
+
+    /// Store Google Trends data
+    pub fn upsert_trends(&mut self, data: &[TrendData]) -> Result<usize> {
+        let tx = self.conn.transaction()?;
+        let mut count = 0;
+
+        {
+            let mut stmt = tx.prepare(
+                r#"
+                INSERT OR REPLACE INTO trends_data (keyword, date, value)
+                VALUES (?1, ?2, ?3)
+                "#,
+            )?;
+
+            for point in data {
+                stmt.execute(params![point.keyword, point.date.to_string(), point.value])?;
+                count += 1;
+            }
+        }
+
+        tx.commit()?;
+        Ok(count)
+    }
+
+    /// Get trends data for a keyword
+    pub fn get_trends(&self, keyword: &str) -> Result<Vec<TrendData>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT keyword, date, value
+            FROM trends_data
+            WHERE keyword = ?1
+            ORDER BY date ASC
+            "#,
+        )?;
+
+        let trends = stmt
+            .query_map(params![keyword], |row| {
+                let date_str: String = row.get(1)?;
+                Ok(TrendData {
+                    keyword: row.get(0)?,
+                    date: NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+                        .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
+                    value: row.get(2)?,
+                })
+            })?
+            .collect::<SqliteResult<Vec<_>>>()?;
+
+        Ok(trends)
+    }
 }
 
 /// Database schema SQL
@@ -695,4 +745,17 @@ CREATE TABLE IF NOT EXISTS portfolio_positions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_positions_symbol ON portfolio_positions(symbol);
+
+-- Google Trends data
+CREATE TABLE IF NOT EXISTS trends_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword TEXT NOT NULL,
+    date DATE NOT NULL,
+    value INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(keyword, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trends_keyword ON trends_data(keyword);
+CREATE INDEX IF NOT EXISTS idx_trends_date ON trends_data(date);
 "#;

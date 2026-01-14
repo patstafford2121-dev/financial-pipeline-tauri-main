@@ -1,6 +1,6 @@
 //! Tauri GUI backend for Financial Pipeline
 
-use financial_pipeline::{calculate_all, AlertCondition, Database, Fred, PositionType, YahooFinance};
+use financial_pipeline::{calculate_all, AlertCondition, Database, Fred, GoogleTrends, PositionType, YahooFinance};
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::State;
@@ -695,6 +695,54 @@ fn delete_position(state: State<AppState>, position_id: i64) -> Result<CommandRe
     })
 }
 
+/// Trend data point for frontend
+#[derive(Serialize)]
+struct TrendPoint {
+    date: String,
+    value: i32,
+}
+
+/// Fetch Google Trends data for a keyword
+#[tauri::command]
+fn fetch_trends(state: State<AppState>, keyword: String) -> Result<CommandResult, String> {
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+
+    let trends = GoogleTrends::new();
+
+    match trends.fetch_and_store(&mut db, &keyword) {
+        Ok(count) => {
+            println!("[OK] Fetched {} trend points for {}", count, keyword);
+            Ok(CommandResult {
+                success: true,
+                message: format!("Fetched {} trend data points for {}", count, keyword),
+            })
+        }
+        Err(e) => {
+            println!("[ERR] Failed to fetch trends for {}: {}", keyword, e);
+            Ok(CommandResult {
+                success: false,
+                message: format!("Failed to fetch trends: {}", e),
+            })
+        }
+    }
+}
+
+/// Get stored trends data for a keyword
+#[tauri::command]
+fn get_trends(state: State<AppState>, keyword: String) -> Result<Vec<TrendPoint>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+
+    let trends = db.get_trends(&keyword).map_err(|e| e.to_string())?;
+
+    Ok(trends
+        .into_iter()
+        .map(|t| TrendPoint {
+            date: t.date.to_string(),
+            value: t.value,
+        })
+        .collect())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database
@@ -721,6 +769,8 @@ pub fn run() {
             add_position,
             get_portfolio,
             delete_position,
+            fetch_trends,
+            get_trends,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

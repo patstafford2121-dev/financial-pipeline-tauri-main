@@ -27,6 +27,9 @@ pub enum PipelineError {
 
     #[error("Invalid date format: {0}")]
     DateParse(String),
+
+    #[error("API error: {0}")]
+    ApiError(String),
 }
 
 pub type Result<T> = std::result::Result<T, PipelineError>;
