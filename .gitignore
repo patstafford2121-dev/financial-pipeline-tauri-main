@@ -79,3 +79,8 @@ tauri-app/node_modules
 
 # Qt/Slint
 qt-app/target
+
+# Claude Code temp files
+.claude/
+/tmp/claude/
+*.output
