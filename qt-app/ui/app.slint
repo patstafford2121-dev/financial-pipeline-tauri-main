@@ -1,0 +1,209 @@
+import { Button, LineEdit, ComboBox, ListView, GroupBox, VerticalBox, HorizontalBox, StandardButton, AboutSlint } from "std-widgets.slint";
+
+// Stock price data model
+struct StockPrice {
+    symbol: string,
+    price: float,
+}
+
+// Main application window
+export component AppWindow inherits Window {
+    title: "Financial Pipeline";
+    min-width: 900px;
+    min-height: 600px;
+    background: #1e293b;
+
+    // Callbacks to Rust
+    callback fetch-prices(string, string);
+    callback fetch-fred(string);
+    callback refresh-list();
+
+    // Properties from Rust
+    in property <[StockPrice]> symbols: [];
+    in property <string> status-text: "Ready";
+    in property <int> symbol-count: 0;
+
+    VerticalBox {
+        padding: 20px;
+        spacing: 20px;
+
+        // Header
+        HorizontalBox {
+            alignment: space-between;
+
+            Text {
+                text: "Financial Pipeline";
+                font-size: 24px;
+                font-weight: 700;
+                color: #f1f5f9;
+            }
+
+            HorizontalBox {
+                spacing: 20px;
+
+                Rectangle {
+                    background: #334155;
+                    border-radius: 8px;
+                    padding: 10px;
+                    width: 100px;
+
+                    VerticalBox {
+                        Text {
+                            text: symbol-count;
+                            font-size: 20px;
+                            font-weight: 700;
+                            color: #38bdf8;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: "Symbols";
+                            font-size: 12px;
+                            color: #94a3b8;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Main content
+        HorizontalBox {
+            spacing: 20px;
+
+            // Left sidebar - Controls
+            Rectangle {
+                background: #334155;
+                border-radius: 12px;
+                padding: 20px;
+                width: 300px;
+
+                VerticalBox {
+                    spacing: 15px;
+
+                    Text {
+                        text: "FETCH DATA";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: #94a3b8;
+                        letter-spacing: 1px;
+                    }
+
+                    Text { text: "Symbols"; color: #94a3b8; font-size: 13px; }
+                    symbols-input := LineEdit {
+                        placeholder-text: "AAPL, MSFT, GOOGL";
+                    }
+
+                    Text { text: "Period"; color: #94a3b8; font-size: 13px; }
+                    period-combo := ComboBox {
+                        model: ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"];
+                        current-index: 3;
+                    }
+
+                    fetch-btn := Button {
+                        text: "Fetch Prices";
+                        clicked => {
+                            root.fetch-prices(symbols-input.text, period-combo.current-value);
+                        }
+                    }
+
+                    Rectangle { height: 10px; }
+
+                    Text {
+                        text: "QUICK ACTIONS";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: #94a3b8;
+                        letter-spacing: 1px;
+                    }
+
+                    HorizontalBox {
+                        spacing: 10px;
+                        Button {
+                            text: "Tech Giants";
+                            clicked => { root.fetch-prices("AAPL,MSFT,GOOGL", period-combo.current-value); }
+                        }
+                        Button {
+                            text: "ETFs";
+                            clicked => { root.fetch-prices("SPY,QQQ,DIA", period-combo.current-value); }
+                        }
+                    }
+
+                    HorizontalBox {
+                        spacing: 10px;
+                        Button {
+                            text: "FRED Macro";
+                            clicked => { root.fetch-fred("DFF,UNRATE"); }
+                        }
+                        Button {
+                            text: "Refresh";
+                            clicked => { root.refresh-list(); }
+                        }
+                    }
+                }
+            }
+
+            // Right side - Symbol list
+            Rectangle {
+                background: #334155;
+                border-radius: 12px;
+                padding: 20px;
+
+                VerticalBox {
+                    spacing: 10px;
+
+                    Text {
+                        text: "SYMBOLS";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: #94a3b8;
+                        letter-spacing: 1px;
+                    }
+
+                    ListView {
+                        for stock in root.symbols: Rectangle {
+                            height: 50px;
+                            background: #475569;
+                            border-radius: 8px;
+
+                            HorizontalBox {
+                                padding: 15px;
+                                alignment: space-between;
+
+                                Text {
+                                    text: stock.symbol;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                    color: #f1f5f9;
+                                    font-family: "monospace";
+                                }
+
+                                Text {
+                                    text: "$" + stock.price;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                    color: #22c55e;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Status bar
+        Rectangle {
+            background: #0f172a;
+            border-radius: 8px;
+            padding: 10px;
+            height: 40px;
+
+            HorizontalBox {
+                Text {
+                    text: status-text;
+                    color: #94a3b8;
+                    font-size: 13px;
+                }
+            }
+        }
+    }
+}

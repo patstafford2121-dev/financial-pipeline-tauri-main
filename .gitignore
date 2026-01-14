@@ -23,15 +23,21 @@ wheels/
 .installed.cfg
 *.egg
 
+# Rust
+/target
+**/target
+
 # Database files
 *.db
 *.db-shm
 *.db-wal
 data/finance.db
+data/*.db
 data/backups/*.db
 
 # API keys and secrets
 .env
+.env.local
 config/config.json
 
 # Downloaded data
@@ -66,3 +72,10 @@ htmlcov/
 
 # PhiSHRI (if running locally)
 .phishri/
+
+# Tauri
+tauri-app/src-tauri/target
+tauri-app/node_modules
+
+# Qt/Slint
+qt-app/target
