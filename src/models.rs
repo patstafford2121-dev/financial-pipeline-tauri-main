@@ -85,6 +85,25 @@ pub struct PriceAlert {
     pub created_at: String,
 }
 
+/// Position type (buy or sell/short)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PositionType {
+    Buy,
+    Sell,
+}
+
+/// Portfolio position
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Position {
+    pub id: i64,
+    pub symbol: String,
+    pub quantity: f64,
+    pub price: f64,
+    pub position_type: PositionType,
+    pub date: String,
+    pub notes: Option<String>,
+}
+
 /// Yahoo Finance chart response structures
 pub mod yahoo {
     use serde::Deserialize;

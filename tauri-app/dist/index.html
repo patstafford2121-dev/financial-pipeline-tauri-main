@@ -459,6 +459,7 @@
                         <button class="tab active" onclick="switchTab('stocks')">Stocks</button>
                         <button class="tab" onclick="switchTab('indicators')">Indicators</button>
                         <button class="tab" onclick="switchTab('alerts')">Alerts</button>
+                        <button class="tab" onclick="switchTab('portfolio')">Portfolio</button>
                         <button class="tab" onclick="switchTab('macro')">Macro Data</button>
                         <button class="tab" onclick="switchTab('log')">Log</button>
                     </div>
@@ -553,6 +554,57 @@
                                 <h4 style="color: var(--text-secondary); margin-bottom: 15px;">Active Alerts</h4>
                                 <ul class="symbol-list" id="alerts-list" style="max-height: 400px;">
                                     <li class="empty-state">No alerts set. Add one to get started.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="portfolio-tab" style="display: none;">
+                        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 20px;">
+                            <div>
+                                <h4 style="color: var(--text-secondary); margin-bottom: 15px;">Add Position</h4>
+                                <div class="fetch-form">
+                                    <div class="input-group">
+                                        <label for="position-symbol">Symbol</label>
+                                        <input type="text" id="position-symbol" placeholder="AAPL" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="position-quantity">Quantity</label>
+                                        <input type="number" id="position-quantity" placeholder="10" step="0.01" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="position-price">Buy/Sell Price</label>
+                                        <input type="number" id="position-price" placeholder="150.00" step="0.01" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="position-type">Type</label>
+                                        <select id="position-type">
+                                            <option value="buy">Buy (Long)</option>
+                                            <option value="sell">Sell (Short)</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="position-date">Date</label>
+                                        <input type="date" id="position-date" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="position-notes">Notes (optional)</label>
+                                        <input type="text" id="position-notes" placeholder="Optional notes" />
+                                    </div>
+                                    <button onclick="addPosition()">Add Position</button>
+                                </div>
+                            </div>
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                    <h4 style="color: var(--text-secondary);">Portfolio</h4>
+                                    <div id="portfolio-summary" style="text-align: right;">
+                                        <span style="color: var(--text-secondary);">Total: </span>
+                                        <span id="portfolio-total-value">$0.00</span>
+                                        <span id="portfolio-total-pl" style="margin-left: 10px;">+$0.00 (0.00%)</span>
+                                    </div>
+                                </div>
+                                <ul class="symbol-list" id="portfolio-list" style="max-height: 400px;">
+                                    <li class="empty-state">No positions. Add your first trade to start tracking.</li>
                                 </ul>
                             </div>
                         </div>
@@ -773,11 +825,15 @@
             document.getElementById('stocks-tab').style.display = tab === 'stocks' ? 'block' : 'none';
             document.getElementById('indicators-tab').style.display = tab === 'indicators' ? 'block' : 'none';
             document.getElementById('alerts-tab').style.display = tab === 'alerts' ? 'block' : 'none';
+            document.getElementById('portfolio-tab').style.display = tab === 'portfolio' ? 'block' : 'none';
             document.getElementById('macro-tab').style.display = tab === 'macro' ? 'block' : 'none';
             document.getElementById('log-tab').style.display = tab === 'log' ? 'block' : 'none';
 
             if (tab === 'alerts') {
                 loadAlerts();
+            }
+            if (tab === 'portfolio') {
+                loadPortfolio();
             }
         }
 
@@ -1133,6 +1189,132 @@
             }
         }
 
+        // Portfolio management
+        async function addPosition() {
+            const symbol = document.getElementById('position-symbol').value.trim();
+            const quantity = parseFloat(document.getElementById('position-quantity').value);
+            const price = parseFloat(document.getElementById('position-price').value);
+            const positionType = document.getElementById('position-type').value;
+            const date = document.getElementById('position-date').value;
+            const notes = document.getElementById('position-notes').value.trim() || null;
+
+            if (!symbol) {
+                alert('Please enter a symbol');
+                return;
+            }
+
+            if (isNaN(quantity) || quantity <= 0) {
+                alert('Please enter a valid quantity');
+                return;
+            }
+
+            if (isNaN(price) || price <= 0) {
+                alert('Please enter a valid price');
+                return;
+            }
+
+            if (!date) {
+                alert('Please select a date');
+                return;
+            }
+
+            try {
+                log(`Adding ${positionType} position: ${quantity} x ${symbol} @ $${price.toFixed(2)}...`, 'info');
+                const result = await invoke('add_position', {
+                    symbol,
+                    quantity,
+                    price,
+                    positionType,
+                    date,
+                    notes
+                });
+                log(result.message, result.success ? 'success' : 'error');
+                alert(result.message);
+
+                // Clear form and reload
+                document.getElementById('position-symbol').value = '';
+                document.getElementById('position-quantity').value = '';
+                document.getElementById('position-price').value = '';
+                document.getElementById('position-notes').value = '';
+                await loadPortfolio();
+            } catch (e) {
+                log('Error adding position: ' + e, 'error');
+                alert('Error: ' + e);
+            }
+        }
+
+        async function loadPortfolio() {
+            try {
+                const portfolio = await invoke('get_portfolio');
+                const list = document.getElementById('portfolio-list');
+
+                // Update summary
+                const totalValueEl = document.getElementById('portfolio-total-value');
+                const totalPlEl = document.getElementById('portfolio-total-pl');
+
+                totalValueEl.textContent = `$${portfolio.total_value.toFixed(2)}`;
+
+                const plColor = portfolio.total_profit_loss >= 0 ? 'var(--success)' : 'var(--error)';
+                const plSign = portfolio.total_profit_loss >= 0 ? '+' : '';
+                totalPlEl.style.color = plColor;
+                totalPlEl.textContent = `${plSign}$${portfolio.total_profit_loss.toFixed(2)} (${plSign}${portfolio.total_profit_loss_percent.toFixed(2)}%)`;
+
+                if (portfolio.positions && portfolio.positions.length > 0) {
+                    list.innerHTML = portfolio.positions.map(p => {
+                        const plColor = p.profit_loss >= 0 ? 'var(--success)' : 'var(--error)';
+                        const plSign = p.profit_loss >= 0 ? '+' : '';
+                        const arrow = p.profit_loss > 0 ? '▲' : p.profit_loss < 0 ? '▼' : '';
+                        const typeLabel = p.position_type === 'buy' ? 'LONG' : 'SHORT';
+                        const typeBg = p.position_type === 'buy' ? 'var(--success)' : 'var(--error)';
+
+                        return `
+                        <li class="symbol-item" style="flex-direction: column; align-items: stretch;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <span class="symbol-ticker">${p.symbol}</span>
+                                    <span style="background: ${typeBg}; color: var(--bg-primary); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; margin-left: 8px;">${typeLabel}</span>
+                                    <span style="color: var(--text-secondary); margin-left: 10px; font-size: 0.85rem;">
+                                        ${p.quantity} shares @ $${p.price.toFixed(2)}
+                                    </span>
+                                </div>
+                                <div style="text-align: right;">
+                                    <span style="color: var(--text-primary);">$${p.current_value.toFixed(2)}</span>
+                                    <span style="color: ${plColor}; margin-left: 10px;">
+                                        ${arrow} ${plSign}$${p.profit_loss.toFixed(2)} (${plSign}${p.profit_loss_percent.toFixed(2)}%)
+                                    </span>
+                                </div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.8rem; color: var(--text-secondary);">
+                                <span>Bought: ${p.date} | Current: $${p.current_price.toFixed(2)}</span>
+                                <button onclick="event.stopPropagation(); deletePosition(${p.id})" class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;">
+                                    Remove
+                                </button>
+                            </div>
+                        </li>
+                    `}).join('');
+                    log(`Loaded ${portfolio.positions.length} positions`, 'success');
+                } else {
+                    list.innerHTML = '<li class="empty-state">No positions. Add your first trade to start tracking.</li>';
+                }
+            } catch (e) {
+                log('Error loading portfolio: ' + e, 'error');
+            }
+        }
+
+        async function deletePosition(positionId) {
+            if (!confirm('Remove this position?')) return;
+
+            try {
+                log(`Removing position ${positionId}...`, 'info');
+                const result = await invoke('delete_position', { positionId });
+                log(result.message, result.success ? 'success' : 'error');
+                await loadPortfolio();
+            } catch (e) {
+                log('Error removing position: ' + e, 'error');
+                alert('Error: ' + e);
+            }
+        }
+
         // Auto-refresh functionality
         let autoRefreshTimer = null;
 
@@ -1240,6 +1422,8 @@
             log('Financial Pipeline UI loaded', 'success');
             refreshList();
             updateLastRefreshTime();
+            // Set default date to today for position form
+            document.getElementById('position-date').valueAsDate = new Date();
         });
     </script>
 </body>

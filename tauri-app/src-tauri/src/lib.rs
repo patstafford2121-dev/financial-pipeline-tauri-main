@@ -1,6 +1,6 @@
 //! Tauri GUI backend for Financial Pipeline
 
-use financial_pipeline::{calculate_all, AlertCondition, Database, Fred, YahooFinance};
+use financial_pipeline::{calculate_all, AlertCondition, Database, Fred, PositionType, YahooFinance};
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::State;
@@ -535,6 +535,166 @@ fn check_alerts(state: State<AppState>) -> Result<Vec<AlertData>, String> {
         .collect())
 }
 
+/// Position data for frontend
+#[derive(Serialize)]
+struct PositionData {
+    id: i64,
+    symbol: String,
+    quantity: f64,
+    price: f64,
+    position_type: String,
+    date: String,
+    notes: Option<String>,
+    current_price: f64,
+    current_value: f64,
+    cost_basis: f64,
+    profit_loss: f64,
+    profit_loss_percent: f64,
+}
+
+/// Portfolio summary for frontend
+#[derive(Serialize)]
+struct PortfolioSummary {
+    positions: Vec<PositionData>,
+    total_value: f64,
+    total_cost: f64,
+    total_profit_loss: f64,
+    total_profit_loss_percent: f64,
+}
+
+/// Add a portfolio position
+#[tauri::command]
+fn add_position(
+    state: State<AppState>,
+    symbol: String,
+    quantity: f64,
+    price: f64,
+    position_type: String,
+    date: String,
+    notes: Option<String>,
+) -> Result<CommandResult, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let symbol = symbol.to_uppercase();
+
+    let pos_type = match position_type.to_lowercase().as_str() {
+        "buy" => PositionType::Buy,
+        "sell" => PositionType::Sell,
+        _ => return Err("Invalid position type. Use 'buy' or 'sell'".to_string()),
+    };
+
+    db.add_position(&symbol, quantity, price, pos_type, &date, notes.as_deref())
+        .map_err(|e| e.to_string())?;
+
+    println!(
+        "[OK] Added {} position: {} x {} @ ${:.2}",
+        position_type, quantity, symbol, price
+    );
+
+    Ok(CommandResult {
+        success: true,
+        message: format!(
+            "Added {} {} shares of {} @ ${:.2}",
+            position_type, quantity, symbol, price
+        ),
+    })
+}
+
+/// Get portfolio with current values and P&L
+#[tauri::command]
+fn get_portfolio(state: State<AppState>) -> Result<PortfolioSummary, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+
+    let positions = db.get_positions().map_err(|e| e.to_string())?;
+
+    let mut position_data = Vec::new();
+    let mut total_value = 0.0;
+    let mut total_cost = 0.0;
+
+    for pos in positions {
+        let current_price = db
+            .get_latest_price(&pos.symbol)
+            .map_err(|e| e.to_string())?
+            .unwrap_or(pos.price);
+
+        let cost_basis = pos.quantity * pos.price;
+        let current_value = pos.quantity * current_price;
+
+        // For sell positions, P&L is inverted (profit when price drops)
+        let (profit_loss, profit_loss_percent) = match pos.position_type {
+            PositionType::Buy => {
+                let pl = current_value - cost_basis;
+                let pl_pct = if cost_basis > 0.0 {
+                    (pl / cost_basis) * 100.0
+                } else {
+                    0.0
+                };
+                total_value += current_value;
+                total_cost += cost_basis;
+                (pl, pl_pct)
+            }
+            PositionType::Sell => {
+                // Short position: profit when price goes down
+                let pl = cost_basis - current_value;
+                let pl_pct = if cost_basis > 0.0 {
+                    (pl / cost_basis) * 100.0
+                } else {
+                    0.0
+                };
+                // For shorts, we track the liability
+                total_value -= current_value;
+                total_cost -= cost_basis;
+                (pl, pl_pct)
+            }
+        };
+
+        position_data.push(PositionData {
+            id: pos.id,
+            symbol: pos.symbol,
+            quantity: pos.quantity,
+            price: pos.price,
+            position_type: match pos.position_type {
+                PositionType::Buy => "buy".to_string(),
+                PositionType::Sell => "sell".to_string(),
+            },
+            date: pos.date,
+            notes: pos.notes,
+            current_price,
+            current_value,
+            cost_basis,
+            profit_loss,
+            profit_loss_percent,
+        });
+    }
+
+    let total_profit_loss = total_value - total_cost;
+    let total_profit_loss_percent = if total_cost.abs() > 0.0 {
+        (total_profit_loss / total_cost.abs()) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(PortfolioSummary {
+        positions: position_data,
+        total_value,
+        total_cost,
+        total_profit_loss,
+        total_profit_loss_percent,
+    })
+}
+
+/// Delete a portfolio position
+#[tauri::command]
+fn delete_position(state: State<AppState>, position_id: i64) -> Result<CommandResult, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+
+    db.delete_position(position_id).map_err(|e| e.to_string())?;
+
+    Ok(CommandResult {
+        success: true,
+        message: "Position deleted".to_string(),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database
@@ -558,6 +718,9 @@ pub fn run() {
             get_alerts,
             delete_alert,
             check_alerts,
+            add_position,
+            get_portfolio,
+            delete_position,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

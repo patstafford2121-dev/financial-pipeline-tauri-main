@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, Result as SqliteResult};
 use std::path::Path;
 
 use crate::error::Result;
-use crate::models::{AlertCondition, DailyPrice, MacroData, PriceAlert, Symbol, TechnicalIndicator};
+use crate::models::{AlertCondition, DailyPrice, MacroData, Position, PositionType, PriceAlert, Symbol, TechnicalIndicator};
 
 /// Database wrapper for financial data storage
 pub struct Database {
@@ -484,6 +484,75 @@ impl Database {
 
         Ok(triggered)
     }
+
+    /// Add a portfolio position
+    pub fn add_position(
+        &self,
+        symbol: &str,
+        quantity: f64,
+        price: f64,
+        position_type: PositionType,
+        date: &str,
+        notes: Option<&str>,
+    ) -> Result<i64> {
+        let type_str = match position_type {
+            PositionType::Buy => "buy",
+            PositionType::Sell => "sell",
+        };
+
+        self.conn.execute(
+            r#"
+            INSERT INTO portfolio_positions (symbol, quantity, price, position_type, date, notes)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+            params![symbol, quantity, price, type_str, date, notes],
+        )?;
+
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Get all portfolio positions
+    pub fn get_positions(&self) -> Result<Vec<Position>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id, symbol, quantity, price, position_type, date, notes
+            FROM portfolio_positions
+            ORDER BY date DESC
+            "#,
+        )?;
+
+        let positions = stmt
+            .query_map([], |row| {
+                let type_str: String = row.get(4)?;
+                let position_type = if type_str == "buy" {
+                    PositionType::Buy
+                } else {
+                    PositionType::Sell
+                };
+
+                Ok(Position {
+                    id: row.get(0)?,
+                    symbol: row.get(1)?,
+                    quantity: row.get(2)?,
+                    price: row.get(3)?,
+                    position_type,
+                    date: row.get(5)?,
+                    notes: row.get(6)?,
+                })
+            })?
+            .collect::<SqliteResult<Vec<_>>>()?;
+
+        Ok(positions)
+    }
+
+    /// Delete a portfolio position
+    pub fn delete_position(&self, position_id: i64) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM portfolio_positions WHERE id = ?1",
+            params![position_id],
+        )?;
+        Ok(())
+    }
 }
 
 /// Database schema SQL
@@ -612,4 +681,18 @@ CREATE TABLE IF NOT EXISTS price_alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON price_alerts(symbol);
 CREATE INDEX IF NOT EXISTS idx_alerts_triggered ON price_alerts(triggered);
+
+-- Portfolio positions
+CREATE TABLE IF NOT EXISTS portfolio_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    price REAL NOT NULL,
+    position_type TEXT NOT NULL CHECK(position_type IN ('buy', 'sell')),
+    date TEXT NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_positions_symbol ON portfolio_positions(symbol);
 "#;
