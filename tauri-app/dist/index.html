@@ -405,6 +405,9 @@
                                 <option value="STOCH_K_14">Stochastic %K</option>
                                 <option value="STOCH_D_3">Stochastic %D</option>
                                 <option value="OBV">OBV (Volume)</option>
+                                <option value="ADX_14">ADX (Trend)</option>
+                                <option value="+DI_14">+DI (Bullish)</option>
+                                <option value="-DI_14">-DI (Bearish)</option>
                                 <option value="MACD_12_26">MACD</option>
                                 <option value="MACD_SIGNAL_9">MACD Signal</option>
                                 <option value="MACD_HIST">MACD Histogram</option>
@@ -736,6 +739,8 @@
                             borderColor = '#06b6d4'; // Cyan for Stochastic
                         } else if (indicatorName === 'OBV') {
                             borderColor = '#a855f7'; // Purple for OBV
+                        } else if (indicatorName.startsWith('ADX') || indicatorName.includes('DI_')) {
+                            borderColor = '#f97316'; // Orange for ADX/DI
                         } else {
                             borderColor = '#38bdf8';
                         }

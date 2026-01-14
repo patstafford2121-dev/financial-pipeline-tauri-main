@@ -412,6 +412,124 @@ pub fn calculate_obv(prices: &[DailyPrice]) -> Vec<TechnicalIndicator> {
     indicators
 }
 
+/// Calculate ADX (Average Directional Index)
+/// Measures trend strength (not direction)
+/// ADX > 25 = strong trend, ADX < 20 = weak/no trend
+pub fn calculate_adx(prices: &[DailyPrice], period: usize) -> Vec<TechnicalIndicator> {
+    if prices.len() < period * 2 + 1 {
+        return vec![];
+    }
+
+    let mut indicators = Vec::new();
+
+    // Calculate +DM, -DM, and TR for each day
+    let mut plus_dm = Vec::new();
+    let mut minus_dm = Vec::new();
+    let mut tr = Vec::new();
+
+    for i in 1..prices.len() {
+        let high = prices[i].high;
+        let low = prices[i].low;
+        let prev_high = prices[i - 1].high;
+        let prev_low = prices[i - 1].low;
+        let prev_close = prices[i - 1].close;
+
+        // Directional Movement
+        let up_move = high - prev_high;
+        let down_move = prev_low - low;
+
+        let pdm = if up_move > down_move && up_move > 0.0 {
+            up_move
+        } else {
+            0.0
+        };
+        let mdm = if down_move > up_move && down_move > 0.0 {
+            down_move
+        } else {
+            0.0
+        };
+
+        plus_dm.push(pdm);
+        minus_dm.push(mdm);
+
+        // True Range
+        let tr_val = (high - low)
+            .max((high - prev_close).abs())
+            .max((low - prev_close).abs());
+        tr.push(tr_val);
+    }
+
+    // Smooth using Wilder's method
+    let mut smooth_plus_dm: f64 = plus_dm[..period].iter().sum();
+    let mut smooth_minus_dm: f64 = minus_dm[..period].iter().sum();
+    let mut smooth_tr: f64 = tr[..period].iter().sum();
+
+    let mut dx_values = Vec::new();
+
+    for i in period..plus_dm.len() {
+        // Wilder's smoothing
+        smooth_plus_dm = smooth_plus_dm - (smooth_plus_dm / period as f64) + plus_dm[i];
+        smooth_minus_dm = smooth_minus_dm - (smooth_minus_dm / period as f64) + minus_dm[i];
+        smooth_tr = smooth_tr - (smooth_tr / period as f64) + tr[i];
+
+        // Calculate +DI and -DI
+        let plus_di = if smooth_tr != 0.0 {
+            100.0 * smooth_plus_dm / smooth_tr
+        } else {
+            0.0
+        };
+        let minus_di = if smooth_tr != 0.0 {
+            100.0 * smooth_minus_dm / smooth_tr
+        } else {
+            0.0
+        };
+
+        // Calculate DX
+        let di_sum = plus_di + minus_di;
+        let dx = if di_sum != 0.0 {
+            100.0 * (plus_di - minus_di).abs() / di_sum
+        } else {
+            0.0
+        };
+
+        dx_values.push((prices[i + 1].date, dx, plus_di, minus_di));
+    }
+
+    // Calculate ADX (smoothed DX)
+    if dx_values.len() >= period {
+        let mut adx: f64 = dx_values[..period].iter().map(|d| d.1).sum::<f64>() / period as f64;
+
+        for i in (period - 1)..dx_values.len() {
+            if i >= period {
+                adx = (adx * (period - 1) as f64 + dx_values[i].1) / period as f64;
+            }
+
+            indicators.push(TechnicalIndicator {
+                symbol: prices[0].symbol.clone(),
+                date: dx_values[i].0,
+                indicator_name: format!("ADX_{}", period),
+                value: adx,
+            });
+
+            indicators.push(TechnicalIndicator {
+                symbol: prices[0].symbol.clone(),
+                date: dx_values[i].0,
+                indicator_name: format!("+DI_{}", period),
+                value: dx_values[i].2,
+            });
+
+            indicators.push(TechnicalIndicator {
+                symbol: prices[0].symbol.clone(),
+                date: dx_values[i].0,
+                indicator_name: format!("-DI_{}", period),
+                value: dx_values[i].3,
+            });
+        }
+    }
+
+    indicators
+}
+
 /// Calculate all standard indicators for a symbol
 pub fn calculate_all(prices: &[DailyPrice]) -> Vec<TechnicalIndicator> {
     let mut all = Vec::new();
@@ -441,6 +559,9 @@ pub fn calculate_all(prices: &[DailyPrice]) -> Vec<TechnicalIndicator> {
 
     // OBV
     all.extend(calculate_obv(prices));
+
+    // ADX 14
+    all.extend(calculate_adx(prices, 14));
 
     all
 }
