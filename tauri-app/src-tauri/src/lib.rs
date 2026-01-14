@@ -251,6 +251,158 @@ fn get_price_history(state: State<AppState>, symbol: String) -> Result<Vec<Price
         .collect())
 }
 
+/// Export data to CSV
+#[tauri::command]
+fn export_csv(state: State<AppState>, symbol: String) -> Result<CommandResult, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let symbol = symbol.to_uppercase();
+
+    // Get price data
+    let prices = db.get_prices(&symbol).map_err(|e| e.to_string())?;
+    if prices.is_empty() {
+        return Ok(CommandResult {
+            success: false,
+            message: format!("No data for {}", symbol),
+        });
+    }
+
+    // Get indicators
+    let indicators = db.get_latest_indicators(&symbol).map_err(|e| e.to_string())?;
+
+    // Create export directory
+    std::fs::create_dir_all("exports").ok();
+
+    // Export prices
+    let price_file = format!("exports/{}_prices.csv", symbol);
+    let mut wtr = std::fs::File::create(&price_file).map_err(|e| e.to_string())?;
+    use std::io::Write;
+    writeln!(wtr, "date,open,high,low,close,volume").map_err(|e| e.to_string())?;
+    for p in &prices {
+        writeln!(wtr, "{},{},{},{},{},{}", p.date, p.open, p.high, p.low, p.close, p.volume)
+            .map_err(|e| e.to_string())?;
+    }
+
+    // Export indicators
+    let ind_file = format!("exports/{}_indicators.csv", symbol);
+    let mut wtr = std::fs::File::create(&ind_file).map_err(|e| e.to_string())?;
+    writeln!(wtr, "indicator,value,date").map_err(|e| e.to_string())?;
+    for i in &indicators {
+        writeln!(wtr, "{},{},{}", i.indicator_name, i.value, i.date).map_err(|e| e.to_string())?;
+    }
+
+    println!("[OK] Exported {} to CSV", symbol);
+
+    Ok(CommandResult {
+        success: true,
+        message: format!("Exported to exports/{}_prices.csv and exports/{}_indicators.csv", symbol, symbol),
+    })
+}
+
+/// Company name to symbol mapping for fuzzy search
+fn get_symbol_mapping() -> std::collections::HashMap<&'static str, &'static str> {
+    let mut map = std::collections::HashMap::new();
+    // Tech
+    map.insert("apple", "AAPL");
+    map.insert("microsoft", "MSFT");
+    map.insert("google", "GOOGL");
+    map.insert("alphabet", "GOOGL");
+    map.insert("amazon", "AMZN");
+    map.insert("meta", "META");
+    map.insert("facebook", "META");
+    map.insert("nvidia", "NVDA");
+    map.insert("tesla", "TSLA");
+    map.insert("netflix", "NFLX");
+    map.insert("intel", "INTC");
+    map.insert("amd", "AMD");
+    map.insert("cisco", "CSCO");
+    map.insert("oracle", "ORCL");
+    map.insert("ibm", "IBM");
+    map.insert("salesforce", "CRM");
+    map.insert("adobe", "ADBE");
+    map.insert("paypal", "PYPL");
+    map.insert("uber", "UBER");
+    map.insert("airbnb", "ABNB");
+    map.insert("spotify", "SPOT");
+    map.insert("snap", "SNAP");
+    map.insert("snapchat", "SNAP");
+    map.insert("twitter", "X");
+    map.insert("palantir", "PLTR");
+    // Finance
+    map.insert("jpmorgan", "JPM");
+    map.insert("jp morgan", "JPM");
+    map.insert("goldman", "GS");
+    map.insert("goldman sachs", "GS");
+    map.insert("morgan stanley", "MS");
+    map.insert("bank of america", "BAC");
+    map.insert("wells fargo", "WFC");
+    map.insert("visa", "V");
+    map.insert("mastercard", "MA");
+    map.insert("berkshire", "BRK.B");
+    // Retail/Consumer
+    map.insert("walmart", "WMT");
+    map.insert("costco", "COST");
+    map.insert("target", "TGT");
+    map.insert("home depot", "HD");
+    map.insert("lowes", "LOW");
+    map.insert("nike", "NKE");
+    map.insert("starbucks", "SBUX");
+    map.insert("mcdonalds", "MCD");
+    map.insert("coca cola", "KO");
+    map.insert("coke", "KO");
+    map.insert("pepsi", "PEP");
+    map.insert("disney", "DIS");
+    // Healthcare
+    map.insert("johnson", "JNJ");
+    map.insert("pfizer", "PFE");
+    map.insert("moderna", "MRNA");
+    map.insert("unitedhealth", "UNH");
+    // Energy
+    map.insert("exxon", "XOM");
+    map.insert("chevron", "CVX");
+    // ETFs
+    map.insert("s&p", "SPY");
+    map.insert("s&p 500", "SPY");
+    map.insert("spy", "SPY");
+    map.insert("nasdaq", "QQQ");
+    map.insert("qqq", "QQQ");
+    map.insert("dow", "DIA");
+    map.insert("dow jones", "DIA");
+    map
+}
+
+/// Search for symbol by name (fuzzy match)
+#[tauri::command]
+fn search_symbol(query: String) -> Result<Vec<String>, String> {
+    let query = query.to_lowercase();
+    let mapping = get_symbol_mapping();
+
+    let mut results = Vec::new();
+
+    // Direct match first
+    if let Some(symbol) = mapping.get(query.as_str()) {
+        results.push(symbol.to_string());
+    }
+
+    // Partial match
+    for (name, symbol) in &mapping {
+        if name.contains(&query) || query.contains(name) {
+            if !results.contains(&symbol.to_string()) {
+                results.push(symbol.to_string());
+            }
+        }
+    }
+
+    // If query looks like a symbol, add it directly
+    if query.len() <= 5 && query.chars().all(|c| c.is_alphabetic()) {
+        let upper = query.to_uppercase();
+        if !results.contains(&upper) {
+            results.push(upper);
+        }
+    }
+
+    Ok(results)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database
@@ -268,6 +420,8 @@ pub fn run() {
             get_indicators,
             get_indicator_history,
             get_price_history,
+            export_csv,
+            search_symbol,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

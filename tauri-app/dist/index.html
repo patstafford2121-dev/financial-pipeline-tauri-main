@@ -354,6 +354,11 @@
                         <button type="submit" id="fetch-btn">Fetch Prices</button>
                     </form>
 
+                    <div style="margin: 15px 0;">
+                        <input type="text" id="search-input" placeholder="Search (e.g., nvidia, apple)" style="width: 100%;" oninput="searchCompany(this.value)" />
+                        <div id="search-results" style="margin-top: 5px;"></div>
+                    </div>
+
                     <div class="quick-actions">
                         <button class="quick-action btn-secondary" onclick="fetchQuick('AAPL,MSFT,GOOGL')">
                             Tech Giants
@@ -497,9 +502,15 @@
 
                 if (symbols && symbols.length > 0) {
                     list.innerHTML = symbols.map(s => `
-                        <li class="symbol-item" onclick="showDetails('${s.symbol}')">
-                            <span class="symbol-ticker">${s.symbol}</span>
-                            <span class="symbol-price">$${s.price.toFixed(2)}</span>
+                        <li class="symbol-item" onclick="toggleSymbolMenu('${s.symbol}')">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span class="symbol-ticker">${s.symbol}</span>
+                                <span class="symbol-price">$${s.price.toFixed(2)}</span>
+                            </div>
+                            <div id="menu-${s.symbol}" class="symbol-menu" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
+                                <button onclick="event.stopPropagation(); viewIndicators('${s.symbol}')" style="margin-right: 5px;">View Indicators</button>
+                                <button onclick="event.stopPropagation(); exportSymbol('${s.symbol}')" class="btn-secondary">Export CSV</button>
+                            </div>
                         </li>
                     `).join('');
                     document.getElementById('symbol-count').textContent = symbols.length;
@@ -510,6 +521,58 @@
             } catch (e) {
                 log('Error refreshing: ' + e, 'error');
             }
+        }
+
+        function toggleSymbolMenu(symbol) {
+            const menu = document.getElementById('menu-' + symbol);
+            if (menu) {
+                menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+
+        function viewIndicators(symbol) {
+            document.getElementById('indicator-symbol').value = symbol;
+            switchTab('indicators');
+            calculateIndicators();
+        }
+
+        async function exportSymbol(symbol) {
+            try {
+                log(`Exporting ${symbol} to CSV...`, 'info');
+                const result = await invoke('export_csv', { symbol });
+                log(result.message, result.success ? 'success' : 'error');
+                alert(result.message);
+            } catch (e) {
+                log('Export error: ' + e, 'error');
+                alert('Error: ' + e);
+            }
+        }
+
+        async function searchCompany(query) {
+            const resultsDiv = document.getElementById('search-results');
+            if (query.length < 2) {
+                resultsDiv.innerHTML = '';
+                return;
+            }
+
+            try {
+                const symbols = await invoke('search_symbol', { query });
+                if (symbols && symbols.length > 0) {
+                    resultsDiv.innerHTML = symbols.map(s => `
+                        <button onclick="fetchAndSelect('${s}')" style="margin: 2px;">${s}</button>
+                    `).join('');
+                } else {
+                    resultsDiv.innerHTML = '<span style="color: var(--text-secondary);">No matches</span>';
+                }
+            } catch (e) {
+                resultsDiv.innerHTML = '';
+            }
+        }
+
+        async function fetchAndSelect(symbol) {
+            document.getElementById('search-input').value = '';
+            document.getElementById('search-results').innerHTML = '';
+            await fetchPrices(symbol, '1y');
         }
 
         async function fetchPrices(symbols, period) {
