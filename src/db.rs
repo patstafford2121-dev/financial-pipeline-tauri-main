@@ -157,6 +157,80 @@ impl Database {
         Ok(count)
     }
 
+    /// Get macro data for an indicator (latest values)
+    pub fn get_macro_data(&self, indicator: &str) -> Result<Vec<MacroData>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT indicator, date, value, source
+            FROM macro_data
+            WHERE indicator = ?1
+            ORDER BY date DESC
+            LIMIT 100
+            "#,
+        )?;
+
+        let data = stmt
+            .query_map(params![indicator], |row| {
+                let date_str: String = row.get(1)?;
+                Ok(MacroData {
+                    indicator: row.get(0)?,
+                    date: NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+                        .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
+                    value: row.get(2)?,
+                    source: row.get(3)?,
+                })
+            })?
+            .collect::<SqliteResult<Vec<_>>>()?;
+
+        Ok(data)
+    }
+
+    /// Get all unique macro indicators
+    pub fn get_macro_indicators(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT DISTINCT indicator FROM macro_data ORDER BY indicator
+            "#,
+        )?;
+
+        let indicators = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<SqliteResult<Vec<_>>>()?;
+
+        Ok(indicators)
+    }
+
+    /// Get latest value for each macro indicator
+    pub fn get_macro_summary(&self) -> Result<Vec<MacroData>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT m.indicator, m.date, m.value, m.source
+            FROM macro_data m
+            INNER JOIN (
+                SELECT indicator, MAX(date) as max_date
+                FROM macro_data
+                GROUP BY indicator
+            ) latest ON m.indicator = latest.indicator AND m.date = latest.max_date
+            ORDER BY m.indicator
+            "#,
+        )?;
+
+        let data = stmt
+            .query_map([], |row| {
+                let date_str: String = row.get(1)?;
+                Ok(MacroData {
+                    indicator: row.get(0)?,
+                    date: NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+                        .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
+                    value: row.get(2)?,
+                    source: row.get(3)?,
+                })
+            })?
+            .collect::<SqliteResult<Vec<_>>>()?;
+
+        Ok(data)
+    }
+
     /// Log an API call
     pub fn log_api_call(&self, source: &str, endpoint: &str, symbol: &str) -> Result<()> {
         self.conn.execute(

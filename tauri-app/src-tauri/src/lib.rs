@@ -38,6 +38,15 @@ struct IndicatorData {
     date: String,
 }
 
+/// Macro data for frontend
+#[derive(Serialize)]
+struct MacroDataResponse {
+    indicator: String,
+    value: f64,
+    date: String,
+    source: String,
+}
+
 /// Get all symbols with their latest prices and percent change
 #[tauri::command]
 fn get_symbols(state: State<AppState>) -> Result<Vec<SymbolPrice>, String> {
@@ -171,6 +180,24 @@ fn fetch_fred(state: State<AppState>, indicators: String) -> Result<CommandResul
             fail_count
         ),
     })
+}
+
+/// Get macro data summary (latest value for each indicator)
+#[tauri::command]
+fn get_macro_data(state: State<AppState>) -> Result<Vec<MacroDataResponse>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+
+    let data = db.get_macro_summary().map_err(|e| e.to_string())?;
+
+    Ok(data
+        .into_iter()
+        .map(|d| MacroDataResponse {
+            indicator: d.indicator,
+            value: d.value,
+            date: d.date.to_string(),
+            source: d.source,
+        })
+        .collect())
 }
 
 /// Get price for a single symbol
@@ -1415,6 +1442,7 @@ pub fn run() {
             get_symbols,
             fetch_prices,
             fetch_fred,
+            get_macro_data,
             get_price,
             calculate_indicators,
             get_indicators,
