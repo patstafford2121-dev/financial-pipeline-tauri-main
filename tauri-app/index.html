@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial Pipeline</title>
+    <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Financial Pipeline</h1>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="symbol-count">0</div>
+                    <div class="stat-label">Symbols</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="last-refresh">--:--</div>
+                    <div class="stat-label">Last Update</div>
+                </div>
+                <div class="auto-refresh-controls">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="auto-refresh-toggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <select id="refresh-interval">
+                        <option value="60000">1 min</option>
+                        <option value="300000" selected>5 min</option>
+                        <option value="900000">15 min</option>
+                        <option value="1800000">30 min</option>
+                    </select>
+                    <span id="refresh-status" class="refresh-status">Auto-refresh off</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid">
+            <div class="sidebar">
+                <div class="card">
+                    <h3 class="card-title">Fetch Data</h3>
+                    <form class="fetch-form" id="fetch-form">
+                        <div class="input-group">
+                            <label for="symbols">Symbols</label>
+                            <input type="text" id="symbols" placeholder="AAPL, MSFT, GOOGL" />
+                        </div>
+                        <div class="input-group">
+                            <label for="period">Period</label>
+                            <select id="period">
+                                <option value="1mo">1 Month</option>
+                                <option value="3mo">3 Months</option>
+                                <option value="6mo">6 Months</option>
+                                <option value="1y" selected>1 Year</option>
+                                <option value="2y">2 Years</option>
+                                <option value="5y">5 Years</option>
+                                <option value="max">Max</option>
+                            </select>
+                        </div>
+                        <button type="submit" id="fetch-btn">Fetch Prices</button>
+                    </form>
+
+                    <div class="search-box">
+                        <input type="text" id="search-input" placeholder="Search (e.g., nvidia, apple)" />
+                        <div id="search-results"></div>
+                    </div>
+
+                    <div class="quick-actions">
+                        <button class="quick-action btn-secondary" data-symbols="AAPL,MSFT,GOOGL">Tech Giants</button>
+                        <button class="quick-action btn-secondary" data-symbols="SPY,QQQ,DIA">ETFs</button>
+                        <button class="quick-action btn-secondary" data-fred="DFF,UNRATE">FRED Macro</button>
+                        <button class="quick-action btn-secondary" id="refresh-btn">Refresh</button>
+                    </div>
+                    <div class="quick-actions" style="margin-top: 8px;">
+                        <button class="quick-action btn-primary" id="sp100-btn">S&amp;P 100</button>
+                        <button class="quick-action btn-primary" id="asx100-btn">ASX 100</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="main">
+                <div class="card">
+                    <div class="tabs">
+                        <button class="tab active" data-tab="stocks">Stocks</button>
+                        <button class="tab" data-tab="groups">Groups</button>
+                        <button class="tab" data-tab="chart">Chart</button>
+                        <button class="tab" data-tab="indicators">Indicators</button>
+                        <button class="tab" data-tab="alerts">Alerts</button>
+                        <button class="tab" data-tab="portfolio">Portfolio</button>
+                        <button class="tab" data-tab="macro">Macro Data</button>
+                        <button class="tab" data-tab="log">Log</button>
+                    </div>
+
+                    <!-- Stocks Tab -->
+                    <div id="stocks-tab" class="tab-content">
+                        <div class="sort-bar">
+                            <span>Sort by:</span>
+                            <select id="sort-select">
+                                <option value="change-desc">% Change (High to Low)</option>
+                                <option value="change-asc">% Change (Low to High)</option>
+                                <option value="price-desc">Price (High to Low)</option>
+                                <option value="price-asc">Price (Low to High)</option>
+                                <option value="symbol-asc">Symbol (A-Z)</option>
+                                <option value="symbol-desc">Symbol (Z-A)</option>
+                            </select>
+                        </div>
+                        <ul class="symbol-list" id="symbol-list">
+                            <li class="empty-state">No data loaded. Fetch some symbols to get started.</li>
+                        </ul>
+                    </div>
+
+                    <!-- Groups/Watchlists Tab -->
+                    <div id="groups-tab" class="tab-content" style="display: none;">
+                        <div class="two-column">
+                            <div>
+                                <h4>Create Symbol Group</h4>
+                                <div class="fetch-form">
+                                    <div class="input-group">
+                                        <label for="group-name">Group Name</label>
+                                        <input type="text" id="group-name" placeholder="AI Stocks" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="group-symbols">Symbols (comma separated)</label>
+                                        <input type="text" id="group-symbols" placeholder="NVDA, MSFT, GOOGL, AMD" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="group-description">Description (optional)</label>
+                                        <input type="text" id="group-description" placeholder="Artificial Intelligence focused companies" />
+                                    </div>
+                                    <button id="create-group-btn">Create Group</button>
+                                </div>
+                                <div class="group-quick-actions" style="margin-top: 16px;">
+                                    <h5>Quick Add Presets:</h5>
+                                    <button class="btn-secondary preset-group" data-name="AI Stocks" data-symbols="NVDA,MSFT,GOOGL,AMD,META,PLTR,IBM,ORCL" data-desc="Artificial Intelligence focused companies">AI Stocks</button>
+                                    <button class="btn-secondary preset-group" data-name="Agriculture" data-symbols="DE,ADM,BG,CTVA,MOS,NTR,CF,FMC" data-desc="Agriculture and farming sector">Agriculture</button>
+                                    <button class="btn-secondary preset-group" data-name="Large Cap Crypto" data-symbols="BTC-USD,ETH-USD,BNB-USD,SOL-USD,XRP-USD" data-desc="Top cryptocurrency by market cap">Crypto L-Cap</button>
+                                    <button class="btn-secondary preset-group" data-name="Gold Miners" data-symbols="NEM,GOLD,AEM,FNV,WPM,KGC" data-desc="Gold mining companies">Gold Miners</button>
+                                    <button class="btn-secondary preset-group" data-name="EV Makers" data-symbols="TSLA,RIVN,LCID,NIO,XPEV,LI" data-desc="Electric vehicle manufacturers">EV Makers</button>
+                                </div>
+                            </div>
+                            <div>
+                                <h4>Saved Groups</h4>
+                                <ul class="symbol-list" id="groups-list">
+                                    <li class="empty-state">No groups created. Create your first symbol group.</li>
+                                </ul>
+                                <div id="group-detail" style="display: none; margin-top: 16px;">
+                                    <h4 id="group-detail-name">Group Name</h4>
+                                    <p id="group-detail-desc" style="color: var(--text-secondary); font-size: 0.9rem;"></p>
+                                    <div style="display: flex; gap: 8px; margin: 8px 0;">
+                                        <input type="text" id="add-symbol-input" placeholder="Add symbol" style="flex: 1;" />
+                                        <button id="add-symbol-btn" class="btn-secondary">Add</button>
+                                        <button id="group-favorite-btn" class="favorite-btn" title="Toggle auto-refresh for this symbol">FAV</button>
+                                    </div>
+                                    <ul class="symbol-list" id="group-symbols-list"></ul>
+                                    <div style="display: flex; gap: 8px; margin-top: 12px;">
+                                        <button id="fetch-group-btn" class="btn-primary">Fetch All Prices</button>
+                                        <button id="delete-group-btn" class="btn-secondary" style="background: var(--error);">Delete Group</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TradingView Chart Tab -->
+                    <div id="chart-tab" class="tab-content" style="display: none;">
+                        <div class="chart-controls">
+                            <input type="text" id="chart-symbol" placeholder="Symbol (e.g., AAPL)" />
+                            <button id="chart-favorite-btn" class="favorite-btn" title="Toggle auto-refresh">FAV</button>
+                            <select id="chart-timeframe">
+                                <option value="D">Daily</option>
+                                <option value="W">Weekly</option>
+                                <option value="M">Monthly</option>
+                            </select>
+                            <button id="load-chart-btn">Load Chart</button>
+                            <div class="chart-indicators">
+                                <label><input type="checkbox" id="show-sma20"> SMA 20</label>
+                                <label><input type="checkbox" id="show-sma50"> SMA 50</label>
+                                <label><input type="checkbox" id="show-ema12"> EMA 12</label>
+                                <label><input type="checkbox" id="show-bb"> Bollinger</label>
+                            </div>
+                        </div>
+                        <div id="tradingview-chart"></div>
+                        <div id="volume-chart"></div>
+                    </div>
+
+                    <!-- Indicators Tab -->
+                    <div id="indicators-tab" class="tab-content" style="display: none;">
+                        <div class="chart-controls">
+                            <input type="text" id="indicator-symbol" placeholder="Symbol (e.g., AAPL)" />
+                            <button id="indicator-favorite-btn" class="favorite-btn" title="Toggle auto-refresh">FAV</button>
+                            <select id="indicator-select">
+                                <option value="">-- Select Indicator --</option>
+                                <optgroup label="Momentum">
+                                    <option value="RSI_14">RSI (14)</option>
+                                    <option value="STOCH_K_14">Stochastic %K (14)</option>
+                                    <option value="STOCH_D_3">Stochastic %D (3)</option>
+                                    <option value="CCI_20">CCI (20)</option>
+                                </optgroup>
+                                <optgroup label="Trend">
+                                    <option value="MACD_12_26">MACD Line</option>
+                                    <option value="MACD_SIGNAL_9">MACD Signal</option>
+                                    <option value="MACD_HIST">MACD Histogram</option>
+                                    <option value="ADX_14">ADX (14)</option>
+                                </optgroup>
+                                <optgroup label="Moving Averages">
+                                    <option value="SMA_20">SMA (20)</option>
+                                    <option value="SMA_50">SMA (50)</option>
+                                    <option value="EMA_12">EMA (12)</option>
+                                    <option value="EMA_26">EMA (26)</option>
+                                </optgroup>
+                                <optgroup label="Volatility">
+                                    <option value="ATR_14">ATR (14)</option>
+                                    <option value="BB_UPPER_20">Bollinger Upper</option>
+                                    <option value="BB_MIDDLE_20">Bollinger Middle</option>
+                                    <option value="BB_LOWER_20">Bollinger Lower</option>
+                                </optgroup>
+                                <optgroup label="Volume">
+                                    <option value="OBV">OBV</option>
+                                </optgroup>
+                            </select>
+                            <button id="calc-indicators-btn">Calculate</button>
+                            <button id="show-indicator-chart-btn" class="btn-secondary">Show Chart</button>
+                        </div>
+                        <div class="indicator-grid">
+                            <div>
+                                <h4>Latest Values</h4>
+                                <ul class="symbol-list indicator-values" id="indicator-list">
+                                    <li class="empty-state">Select a symbol and Calculate</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h4>Indicator Chart</h4>
+                                <div id="indicator-chart-container"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Alerts Tab -->
+                    <div id="alerts-tab" class="tab-content" style="display: none;">
+                        <div class="two-column">
+                            <div>
+                                <h4>Add Price Alert</h4>
+                                <div class="fetch-form">
+                                    <div class="input-group">
+                                        <label for="alert-symbol">Symbol</label>
+                                        <div style="display: flex; gap: 8px; align-items: center;">
+                                            <input type="text" id="alert-symbol" placeholder="AAPL" style="flex: 1;" />
+                                            <button id="alert-favorite-btn" class="favorite-btn" title="Toggle auto-refresh">FAV</button>
+                                        </div>
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="alert-price">Target Price</label>
+                                        <input type="number" id="alert-price" placeholder="150.00" step="0.01" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="alert-condition">Condition</label>
+                                        <select id="alert-condition">
+                                            <option value="above">Above (&gt;=)</option>
+                                            <option value="below">Below (&lt;=)</option>
+                                        </select>
+                                    </div>
+                                    <button id="add-alert-btn">Add Alert</button>
+                                    <button id="check-alerts-btn" class="btn-secondary">Check Alerts</button>
+                                </div>
+                            </div>
+                            <div>
+                                <h4>Active Alerts</h4>
+                                <ul class="symbol-list" id="alerts-list">
+                                    <li class="empty-state">No alerts set. Add one to get started.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Portfolio Tab -->
+                    <div id="portfolio-tab" class="tab-content" style="display: none;">
+                        <div class="two-column">
+                            <div>
+                                <h4>Add Position</h4>
+                                <div class="fetch-form">
+                                    <div class="input-group">
+                                        <label for="position-symbol">Symbol</label>
+                                        <input type="text" id="position-symbol" placeholder="AAPL" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="position-quantity">Quantity</label>
+                                        <input type="number" id="position-quantity" placeholder="10" step="0.01" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="position-price">Buy/Sell Price</label>
+                                        <input type="number" id="position-price" placeholder="150.00" step="0.01" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="position-type">Type</label>
+                                        <select id="position-type">
+                                            <option value="buy">Buy (Long)</option>
+                                            <option value="sell">Sell (Short)</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="position-date">Date</label>
+                                        <input type="date" id="position-date" />
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="position-notes">Notes (optional)</label>
+                                        <input type="text" id="position-notes" placeholder="Optional notes" />
+                                    </div>
+                                    <button id="add-position-btn">Add Position</button>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="portfolio-header">
+                                    <h4>Portfolio</h4>
+                                    <div id="portfolio-summary">
+                                        <span>Total: </span>
+                                        <span id="portfolio-total-value">$0.00</span>
+                                        <span id="portfolio-total-pl">+$0.00 (0.00%)</span>
+                                    </div>
+                                </div>
+                                <ul class="symbol-list" id="portfolio-list">
+                                    <li class="empty-state">No positions. Add your first trade to start tracking.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Macro Data Tab -->
+                    <div id="macro-tab" class="tab-content" style="display: none;">
+                        <ul class="symbol-list" id="macro-list">
+                            <li class="empty-state">No macro data loaded. Click "FRED Macro" to fetch data.</li>
+                        </ul>
+                    </div>
+
+                    <!-- Log Tab -->
+                    <div id="log-tab" class="tab-content" style="display: none;">
+                        <div class="log-container" id="log-container">
+                            <div class="log-entry log-info">[INIT] Financial Pipeline ready</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

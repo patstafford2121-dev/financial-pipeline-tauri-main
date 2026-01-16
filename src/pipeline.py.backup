@@ -1,0 +1,444 @@
+"""
+Financial Data Pipeline - Main Class
+Door 865: Financial Data Pipeline - SQLite Edition
+"""
+
+import sqlite3
+import pandas as pd
+import json
+import os
+from pathlib import Path
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any
+import time
+
+
+class FinancePipeline:
+    """Main pipeline class for financial data management"""
+    
+    def __init__(self, config_path: str = "config/config.json"):
+        """Initialize pipeline with configuration"""
+        self.config = self._load_config(config_path)
+        self.db_path = self.config['database']['path']
+        self.conn = None
+        self.api_keys = self.config.get('api_keys', {})
+        
+    def _load_config(self, config_path: str) -> Dict[str, Any]:
+        """Load configuration from JSON file"""
+        if not os.path.exists(config_path):
+            # Try to load example config
+            example_path = config_path.replace('.json', '.example.json')
+            if os.path.exists(example_path):
+                print(f"Warning: {config_path} not found, using {example_path}")
+                config_path = example_path
+            else:
+                raise FileNotFoundError(f"Config file not found: {config_path}")
+                
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    
+    def connect(self):
+        """Establish database connection"""
+        if self.conn is None:
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+            # Use check_same_thread=False for Streamlit compatibility (multi-threaded environment)
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row  # Return rows as dictionaries
+            # Auto-initialize schema if tables don't exist
+            self._ensure_schema_initialized()
+        return self.conn
+    
+    def _ensure_schema_initialized(self):
+        """Check if database schema exists and initialize if needed"""
+        cursor = self.conn.cursor()
+        # Check if symbols table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='symbols'
+        """)
+
+        if not cursor.fetchone():
+            # Schema doesn't exist, initialize it
+            schema_path = "config/schema.sql"
+            if os.path.exists(schema_path):
+                with open(schema_path, 'r') as f:
+                    schema_sql = f.read()
+                self.conn.executescript(schema_sql)
+                self.conn.commit()
+                print(f"Database schema initialized at {self.db_path}")
+
+    def disconnect(self):
+        """Close database connection"""
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+    
+    def init_schema(self, schema_path: str = "config/schema.sql"):
+        """Initialize database schema"""
+        self.connect()
+        
+        with open(schema_path, 'r') as f:
+            schema_sql = f.read()
+        
+        self.conn.executescript(schema_sql)
+        self.conn.commit()
+        print(f"Database initialized at {self.db_path}")
+        
+    def configure(self, **kwargs):
+        """Update API keys and configuration"""
+        for key, value in kwargs.items():
+            if key.endswith('_key'):
+                api_name = key.replace('_key', '')
+                self.api_keys[api_name] = value
+            else:
+                # Update nested config
+                self.config[key] = value
+    
+    def load_symbols(self, json_path: str, asset_class: str = 'equity'):
+        """
+        Load symbol catalog from FinanceDatabase JSON
+        
+        Args:
+            json_path: Path to JSON file (e.g., equities.json)
+            asset_class: 'equity', 'etf', 'crypto', 'forex'
+        """
+        self.connect()
+        
+        # Read JSON (supports both dict and list formats)
+        df = pd.read_json(json_path)
+        
+        # Add asset_class if not present
+        if 'asset_class' not in df.columns:
+            df['asset_class'] = asset_class
+        
+        # Load to database
+        df.to_sql('symbols', self.conn, if_exists='append', index=False)
+        self.conn.commit()
+        
+        print(f"Loaded {len(df)} symbols from {json_path}")
+        return len(df)
+    
+    def fetch_prices_finnhub(self, symbol: str, days: int = 365):
+    """
+    Fetch daily prices from Finnhub
+    
+    Args:
+        symbol: Stock symbol
+        days: Number of days of historical data (default 365)
+    """
+    if not self.api_keys.get('finnhub'):
+        raise ValueError("Finnhub API key not configured")
+    
+    import requests
+    import time
+    from datetime import datetime, timedelta
+    
+    # Calculate date range
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+    
+    # Convert to Unix timestamps
+    end_ts = int(end_date.timestamp())
+    start_ts = int(start_date.timestamp())
+    
+    # API call
+    url = "https://finnhub.io/api/v1/stock/candle"
+    params = {
+        'symbol': symbol,
+        'resolution': 'D',  # Daily
+        'from': start_ts,
+        'to': end_ts,
+        'token': self.api_keys['finnhub']
+    }
+    
+    response = requests.get(url, params=params)
+    data = response.json()
+    
+    # Log API call
+    self.log_api_call('finnhub')
+    
+    # Check for errors
+    if data.get('s') == 'no_data':
+        raise Exception(f"No data returned for {symbol}")
+    
+    if 'error' in data:
+        raise Exception(f"API Error: {data['error']}")
+    
+    # Parse and insert data
+    conn = self.connect()
+    cursor = conn.cursor()
+    
+    count = 0
+    timestamps = data.get('t', [])
+    opens = data.get('o', [])
+    highs = data.get('h', [])
+    lows = data.get('l', [])
+    closes = data.get('c', [])
+    volumes = data.get('v', [])
+    
+    for i in range(len(timestamps)):
+        # Convert Unix timestamp to date
+        date = datetime.fromtimestamp(timestamps[i]).strftime('%Y-%m-%d')
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO daily_prices 
+            (symbol, timestamp, open, high, low, close, volume, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, [
+            symbol,
+            date,
+            float(opens[i]),
+            float(highs[i]),
+            float(lows[i]),
+            float(closes[i]),
+            int(volumes[i]),
+            'finnhub'
+        ])
+        count += 1
+    
+    conn.commit()
+    
+    print(f"✓ Loaded {count} records for {symbol}")
+    
+    # Small delay to respect rate limits (60 calls/minute)
+    time.sleep(1)
+    
+    def fetch_fred(self, series_id: str):
+        """
+        Fetch macro data from FRED
+        
+        Args:
+            series_id: FRED series ID (e.g., 'GDP', 'UNRATE', 'DFF')
+        """
+        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+        
+        df = pd.read_csv(url)
+        df.columns = ['date', 'value']
+        df['indicator'] = series_id
+        df['source'] = 'FRED'
+        
+        # Determine frequency
+        dates = pd.to_datetime(df['date'])
+        avg_gap = (dates.diff().dt.days.mean())
+        
+        if avg_gap < 2:
+            frequency = 'daily'
+        elif avg_gap < 35:
+            frequency = 'monthly'
+        elif avg_gap < 100:
+            frequency = 'quarterly'
+        else:
+            frequency = 'annual'
+        
+        df['frequency'] = frequency
+        
+        # Save to database
+        self.connect()
+        df.to_sql('macro_data', self.conn, if_exists='append', index=False)
+        self.conn.commit()
+        
+        print(f"Loaded {len(df)} records for {series_id} ({frequency})")
+        return len(df)
+    
+    def bulk_load_symbols(self, symbols: List[str], delay: Optional[int] = None):
+        """
+        Load multiple symbols with rate limiting
+        
+        Args:
+            symbols: List of ticker symbols
+            delay: Seconds to wait between calls (auto-calculated if None)
+        """
+        if delay is None:
+            # Use configured delay
+            delay = self.config['rate_limits']['alpha_vantage']['delay_seconds']
+        
+        results = []
+        for i, symbol in enumerate(symbols):
+            try:
+                count = self.fetch_prices_alpha(symbol)
+                results.append({'symbol': symbol, 'count': count, 'success': True})
+                
+                if i < len(symbols) - 1:
+                    print(f"Waiting {delay}s before next call...")
+                    time.sleep(delay)
+                    
+            except Exception as e:
+                print(f"Error loading {symbol}: {e}")
+                results.append({'symbol': symbol, 'error': str(e), 'success': False})
+        
+        return results
+    
+    def query(self, sql: str, params: Optional[tuple] = None) -> pd.DataFrame:
+        """
+        Execute SQL query and return DataFrame
+        
+        Args:
+            sql: SQL query string
+            params: Optional parameters for parameterized queries
+        """
+        self.connect()
+        
+        if params:
+            return pd.read_sql_query(sql, self.conn, params=params)
+        else:
+            return pd.read_sql_query(sql, self.conn)
+    
+    def get_symbol_info(self, symbol: str) -> Dict[str, Any]:
+        """Get detailed information about a symbol"""
+        self.connect()
+        
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM symbols WHERE symbol = ?", (symbol,))
+        row = cursor.fetchone()
+        
+        if row:
+            return dict(row)
+        return None
+    
+    def get_latest_price(self, symbol: str) -> Optional[float]:
+        """Get most recent closing price for a symbol"""
+        df = self.query("""
+            SELECT close FROM daily_prices 
+            WHERE symbol = ? 
+            ORDER BY timestamp DESC 
+            LIMIT 1
+        """, (symbol,))
+        
+        return df['close'].iloc[0] if len(df) > 0 else None
+    
+    def get_price_history(self, symbol: str, days: int = 30) -> pd.DataFrame:
+        """Get price history for specified number of days"""
+        return self.query("""
+            SELECT * FROM daily_prices
+            WHERE symbol = ? AND timestamp >= date('now', '-' || ? || ' days')
+            ORDER BY timestamp DESC
+        """, (symbol, days))
+    
+    def get_sector_performance(self, limit: int = 10) -> pd.DataFrame:
+        """Get average sector performance"""
+        return self.query("""
+            SELECT 
+                s.sector,
+                COUNT(DISTINCT s.symbol) as num_stocks,
+                AVG(p.close) as avg_price,
+                SUM(p.volume) as total_volume
+            FROM symbols s
+            JOIN daily_prices p ON s.symbol = p.symbol
+            WHERE p.timestamp = (SELECT MAX(timestamp) FROM daily_prices)
+            GROUP BY s.sector
+            ORDER BY avg_price DESC
+            LIMIT ?
+        """, (limit,))
+    
+    def create_watchlist(self, name: str, symbols: List[str], description: str = ""):
+        """Create a new watchlist"""
+        self.connect()
+        
+        # Insert watchlist
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT INTO watchlists (name, description) VALUES (?, ?)",
+            (name, description)
+        )
+        watchlist_id = cursor.lastrowid
+        
+        # Add symbols
+        for symbol in symbols:
+            cursor.execute(
+                "INSERT INTO watchlist_symbols (watchlist_id, symbol) VALUES (?, ?)",
+                (watchlist_id, symbol)
+            )
+        
+        self.conn.commit()
+        print(f"Created watchlist '{name}' with {len(symbols)} symbols")
+        return watchlist_id
+    
+    def get_watchlist(self, name: str) -> List[str]:
+        """Get symbols in a watchlist"""
+        df = self.query("""
+            SELECT ws.symbol
+            FROM watchlists w
+            JOIN watchlist_symbols ws ON w.id = ws.watchlist_id
+            WHERE w.name = ?
+            ORDER BY ws.added_at
+        """, (name,))
+        
+        return df['symbol'].tolist()
+    
+    def _log_api_call(self, source: str, endpoint: str, symbol: Optional[str] = None, 
+                     success: bool = True, error: Optional[str] = None):
+        """Log API call for rate limit tracking"""
+        self.connect()
+        
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO api_calls (source, endpoint, symbol, success, error_message)
+            VALUES (?, ?, ?, ?, ?)
+        """, (source, endpoint, symbol, success, error))
+        self.conn.commit()
+    
+    def get_api_usage(self, source: str, hours: int = 24) -> int:
+        """Get API call count for rate limit checking"""
+        df = self.query("""
+            SELECT COUNT(*) as count
+            FROM api_calls
+            WHERE source = ? AND timestamp >= datetime('now', '-' || ? || ' hours')
+        """, (source, hours))
+        
+        return df['count'].iloc[0] if len(df) > 0 else 0
+    
+    def backup(self, backup_path: Optional[str] = None):
+        """Create database backup"""
+        if backup_path is None:
+            backup_dir = self.config['database'].get('backup_path', 'data/backups/')
+            os.makedirs(backup_dir, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_path = os.path.join(backup_dir, f'finance_backup_{timestamp}.db')
+        
+        self.connect()
+        
+        # SQLite backup
+        backup_conn = sqlite3.connect(backup_path)
+        self.conn.backup(backup_conn)
+        backup_conn.close()
+        
+        print(f"Database backed up to {backup_path}")
+        return backup_path
+    
+    def vacuum(self):
+        """Optimize database (reclaim space, rebuild indexes)"""
+        self.connect()
+        self.conn.execute("VACUUM")
+        self.conn.execute("ANALYZE")
+        self.conn.commit()
+        print("Database optimized")
+    
+    def __enter__(self):
+        """Context manager support"""
+        self.connect()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager cleanup"""
+        self.disconnect()
+
+
+if __name__ == "__main__":
+    # Example usage
+    pipeline = FinancePipeline()
+    
+    # Initialize database
+    pipeline.init_schema()
+    
+    # Configure API keys
+    pipeline.configure(alpha_vantage_key="YOUR_KEY_HERE")
+    
+    # Load symbols
+    # pipeline.load_symbols("data/raw/equities.json")
+    
+    # Fetch prices
+    # pipeline.fetch_prices_alpha("AAPL")
+    
+    # Query data
+    result = pipeline.query("SELECT COUNT(*) as count FROM symbols")
+    print(result)

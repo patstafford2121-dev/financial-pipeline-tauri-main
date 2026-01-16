@@ -1,0 +1,92 @@
+{
+  "database": {
+    "path": "data/finance.db",
+    "backup_path": "data/backups/",
+    "auto_backup": true,
+    "backup_frequency_days": 7
+  },
+  "data_sources": {
+    "yahoo_finance": {
+      "enabled": true,
+      "default_period": "1y",
+      "note": "FREE and UNLIMITED - no API key required!"
+    },
+    "finance_database": {
+      "repo_url": "https://github.com/JerBouma/FinanceDatabase",
+      "local_path": "data/raw/FinanceDatabase",
+      "auto_update": true
+    },
+    "fred": {
+      "base_url": "https://fred.stlouisfed.org/graph/fredgraph.csv",
+      "indicators": [
+        "GDP",
+        "UNRATE",
+        "DFF",
+        "CPIAUCSL",
+        "PCE",
+        "FEDFUNDS"
+      ],
+      "note": "FREE - no API key required!"
+    }
+  },
+  "watchlists": {
+    "default": [
+      "AAPL",
+      "MSFT",
+      "GOOGL",
+      "AMZN",
+      "META",
+      "NVDA",
+      "TSLA"
+    ],
+    "tech_giants": [
+      "AAPL",
+      "MSFT",
+      "GOOGL",
+      "AMZN",
+      "META"
+    ],
+    "semiconductors": [
+      "NVDA",
+      "AMD",
+      "INTC",
+      "TSM",
+      "AVGO"
+    ]
+  },
+  "update_schedule": {
+    "daily_prices": {
+      "enabled": true,
+      "time": "18:00",
+      "timezone": "America/New_York"
+    },
+    "fundamentals": {
+      "enabled": true,
+      "frequency": "weekly",
+      "day": "Sunday"
+    },
+    "macro_data": {
+      "enabled": true,
+      "frequency": "daily",
+      "time": "09:00"
+    },
+    "symbol_catalog": {
+      "enabled": true,
+      "frequency": "monthly",
+      "day": 1
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/pipeline.log",
+    "max_size_mb": 100,
+    "backup_count": 5
+  },
+  "features": {
+    "cache_enabled": true,
+    "parallel_downloads": false,
+    "max_workers": 4,
+    "retry_failed_requests": true,
+    "max_retries": 3
+  }
+}
